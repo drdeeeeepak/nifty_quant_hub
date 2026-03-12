@@ -1,6 +1,7 @@
+streamlit>=1.35.0
 kiteconnect
 pandas
 pandas_ta_classic
-streamlit
 python-dotenv
 plotly
+altair>=5.0.0
