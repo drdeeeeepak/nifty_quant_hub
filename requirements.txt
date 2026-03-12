@@ -1,5 +1,6 @@
-streamlit
+kiteconnect
 pandas
 pandas_ta_classic
-kiteconnect
+streamlit
 python-dotenv
+plotly
