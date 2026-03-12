@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import engine  # Your exact engine.py
+import engine  
 import pandas_ta_classic as ta
 import plotly.graph_objects as go
 
@@ -13,23 +13,29 @@ if 'access_token' not in st.session_state:
 
 st.title("📉 Historical Verification & Pure Data")
 
-# Selection Logic
+# --- SELECTION & DUAL LOOKBACK CONTROLS ---
 token_map = {"NIFTY 50 SPOT": 256265}
 token_map.update(engine.CONSTITUENTS)
-symbol = st.selectbox("Select Instrument to Verify", list(token_map.keys()))
-days = st.slider("Lookback Period", 10, 200, 60)
 
-# Data Processing
+symbol = st.selectbox("Select Instrument to Verify", list(token_map.keys()))
+
+col_left, col_right = st.columns(2)
+with col_left:
+    chart_days = st.slider("Chart Lookback (Days)", 5, 60, 14)
+with col_right:
+    table_days = st.slider("Table Lookback (Days)", 10, 250, 60)
+
+# Fetch 350 days to ensure EMA200 and BB Middle are fully calculated
 token = token_map[symbol]
 to_date = datetime.datetime.now()
-from_date = to_date - datetime.timedelta(days=days)
+from_date = to_date - datetime.timedelta(days=350) 
 
 try:
     with st.spinner("Fetching data..."):
         data = st.session_state.kite.historical_data(token, from_date, to_date, "day")
         df = pd.DataFrame(data)
         
-        # Calculate Indicators (matching your engine logic)
+        # Indicators
         df['ema3'] = ta.ema(df['close'], length=3)
         df['ema8'] = ta.ema(df['close'], length=8)
         df['ema16'] = ta.ema(df['close'], length=16)
@@ -41,56 +47,58 @@ try:
         df['BB_Upper'] = bb.iloc[:, 2]
         df['BB_Mid'] = bb.iloc[:, 1]
         df['BB_Lower'] = bb.iloc[:, 0]
-        
-        # Scoring from your original engine
-        s = engine.calculate_ths(df)
 
-    # --- 1. PLOTLY GRAPH (Dotted Price & One-Color BB) ---
-    st.subheader(f"📈 {symbol}: Price, EMA3 & Bollinger Bands")
+    # --- 1. GRAPH (Customized Styles) ---
+    st.subheader(f"📈 {symbol}: Price & Indicator Plot")
+    
+    # Filter for Chart Lookback
+    chart_df = df.tail(chart_days).copy()
     
     fig = go.Figure()
 
-    # Bollinger Bands (Same color: Gray, with transparency)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['BB_Upper'], name='BB Upper', line=dict(color='rgba(173, 181, 189, 0.4)')))
-    fig.add_trace(go.Scatter(x=df['date'], y=df['BB_Lower'], name='BB Lower', line=dict(color='rgba(173, 181, 189, 0.4)'), fill='tonexty'))
+    # Bollinger Bands (Single color Gray)
+    fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Upper'], name='BB Upper', line=dict(color='rgba(173, 181, 189, 0.3)', width=1)))
+    fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Lower'], name='BB Lower', line=dict(color='rgba(173, 181, 189, 0.3)', width=1), fill='tonexty'))
     
-    # EMA 3 (Solid Line)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['ema3'], name='EMA 3', line=dict(color='#ffaa00', width=2)))
+    # BB Middle Line (Added as requested)
+    fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Mid'], name='BB Middle', line=dict(color='rgba(173, 181, 189, 0.6)', width=1)))
     
-    # Price (Dotted Line)
-    fig.add_trace(go.Scatter(x=df['date'], y=df['close'], name='LTP (Dotted)', line=dict(color='white', width=2, dash='dot')))
+    # EMA 3 (Yellow Dotted)
+    fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['ema3'], name='EMA 3 (Dotted)', line=dict(color='#FFD700', width=2, dash='dot')))
+    
+    # LTP (Blue Solid)
+    fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['close'], name='LTP (Solid Blue)', line=dict(color='#1E90FF', width=3)))
 
-    fig.update_layout(template="plotly_dark", height=500, margin=dict(l=20, r=20, t=20, b=20))
+    fig.update_layout(template="plotly_dark", height=500, margin=dict(l=20, r=20, t=20, b=20), hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- 2. CONDITIONALLY COLORED TABLE ---
+    # --- 2. CONDITIONALLY COLORED TABLE (Table Lookback) ---
     st.subheader("📋 Pure Data Verification")
+    
+    # Filter for Table Lookback
+    table_raw_df = df.tail(table_days).copy()
 
-    # Filter columns as requested
-    table_df = df[['date', 'close', 'ema3', 'ema8', 'ema16', 'ema30', 'ema200', 'BB_Upper', 'BB_Mid', 'BB_Lower']].copy()
+    table_df = table_raw_df[['date', 'close', 'ema3', 'ema8', 'ema16', 'ema30', 'ema200', 'BB_Upper', 'BB_Mid', 'BB_Lower']].copy()
     table_df = table_df.rename(columns={'close': 'ltp'})
     table_df['date'] = table_df['date'].dt.date
-    
-    # Sort descending
     table_df = table_df.sort_values(by='date', ascending=False)
 
-    # Conditional Styling Function
     def color_ema(row):
         styles = [''] * len(row)
         ema_cols = ['ema3', 'ema8', 'ema16', 'ema30', 'ema200']
-        
         for col_name in ema_cols:
             col_idx = row.index.get_loc(col_name)
-            if row['ltp'] > row[col_name]:
-                styles[col_idx] = 'background-color: rgba(0, 255, 0, 0.3); color: #00ff00;'
+            val = row[col_name]
+            if pd.isna(val):
+                styles[col_idx] = 'background-color: #333; color: #888;'
+            elif row['ltp'] > val:
+                styles[col_idx] = 'background-color: rgba(0, 255, 0, 0.2); color: #00ff00;'
             else:
-                styles[col_idx] = 'background-color: rgba(255, 0, 0, 0.3); color: #ff4b4b;'
+                styles[col_idx] = 'background-color: rgba(255, 0, 0, 0.2); color: #ff4b4b;'
         return styles
 
-    # Apply styling
     styled_df = table_df.style.apply(color_ema, axis=1).format(precision=2)
-
-    st.dataframe(styled_df, use_container_width=True, height=400)
+    st.dataframe(styled_df, use_container_width=True, height=500)
 
 except Exception as e:
     st.error(f"Error generating view: {e}")
