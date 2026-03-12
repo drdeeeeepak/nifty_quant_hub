@@ -71,8 +71,3 @@ else:
     st.write("---")
     st.subheader("👈 Select an Analysis Module from the sidebar")
     st.info("Your Zerodha session is active. You only need to log in once per day.")
-    
-    if st.sidebar.button("Logout"):
-        clear_token_file()
-        st.session_state.clear()
-        st.rerun()
