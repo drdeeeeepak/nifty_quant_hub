@@ -7,17 +7,19 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Historical Verification", layout="wide")
 
+# --- CENTRALIZED AUTH CHECK ---
+# If memory drops, instantly bounce to app.py to silently reload the token
 if 'access_token' not in st.session_state:
-    st.warning("⚠️ Please log in on the Home page.")
-    st.stop()
+    st.switch_page("app.py")
 
-# --- DYNAMIC TOKEN MAPPING (Including Future) ---
+# --- DYNAMIC TOKEN MAPPING ---
+@st.cache_data(ttl=3600)
 def get_tokens():
     try:
         all_ins = pd.DataFrame(st.session_state.kite.instruments("NFO"))
         nifty_fut = int(all_ins[(all_ins['name'] == 'NIFTY') & (all_ins['instrument_type'] == 'FUT') & (all_ins['expiry'].astype(str).str.contains('2026-03'))].iloc[0]['instrument_token'])
     except: 
-        nifty_fut = 12803330
+        nifty_fut = 12803330 
     
     t_map = {"NIFTY 50 SPOT": 256265, "NIFTY MAR FUT": nifty_fut}
     t_map.update(engine.CONSTITUENTS)
@@ -25,37 +27,39 @@ def get_tokens():
 
 token_map = get_tokens()
 
-# --- NAVIGATION LOGIC ---
+st.title("📉 Historical Verification & Multi-Stock Hub")
+
+# --- NAVIGATION (CALLBACK LOGIC) ---
 if "target_stock" not in st.session_state:
     st.session_state.target_stock = "All"
 
-# Helper to change selection
-def select_stock(name):
-    st.session_state.target_stock = name
+def set_target(stock_name):
+    st.session_state.target_stock = stock_name
 
-st.title("📉 Historical Verification & Multi-Stock Hub")
+st.sidebar.subheader("Navigation Menu")
+st.sidebar.button("📊 View All Stocks Table", on_click=set_target, args=("All",), type="primary", use_container_width=True)
+st.sidebar.divider()
+st.sidebar.write("**📈 Individual Instruments**")
 
-# Sidebar button to jump back to "All"
-if st.sidebar.button("📊 View All Stocks Table"):
-    st.session_state.target_stock = "All"
+for stock_name in token_map.keys():
+    st.sidebar.button(stock_name, on_click=set_target, args=(stock_name,), use_container_width=True)
 
 options = ["All"] + list(token_map.keys())
-selection = st.selectbox("Select Instrument to Verify", options, index=options.index(st.session_state.target_stock), key="main_selector")
-st.session_state.target_stock = selection
+selection = st.selectbox("Select Instrument to Verify", options, index=options.index(st.session_state.target_stock))
 
-# Data Range (Increased to 400 for EMA 200 stability)
+if selection != st.session_state.target_stock:
+    st.session_state.target_stock = selection
+    st.rerun()
+
 to_date = datetime.datetime.now()
 from_date = to_date - datetime.timedelta(days=400) 
 
-def get_processed_data(symbol, token):
+def get_processed_data(token):
     data = st.session_state.kite.historical_data(token, from_date, to_date, "day")
     df = pd.DataFrame(data)
-    df['ema3'] = ta.ema(df['close'], length=3)
-    df['ema8'] = ta.ema(df['close'], length=8)
-    df['ema16'] = ta.ema(df['close'], length=16)
-    df['ema30'] = ta.ema(df['close'], length=30)
-    df['ema200'] = ta.ema(df['close'], length=200)
-    df['rsi'] = ta.rsi(df['close'], length=14)
+    df['ema3'] = ta.ema(df['close'], length=3); df['ema8'] = ta.ema(df['close'], length=8)
+    df['ema16'] = ta.ema(df['close'], length=16); df['ema30'] = ta.ema(df['close'], length=30)
+    df['ema200'] = ta.ema(df['close'], length=200); df['rsi'] = ta.rsi(df['close'], length=14)
     bb = ta.bbands(df['close'], length=20, std=2)
     df['BB_Upper'] = bb.iloc[:, 2]; df['BB_Mid'] = bb.iloc[:, 1]; df['BB_Lower'] = bb.iloc[:, 0]
     return df
@@ -73,14 +77,16 @@ def color_levels(row):
             else: styles[col_idx] = 'background-color: rgba(255, 0, 0, 0.2); color: #ff4b4b;'
     return styles
 
-# --- VIEW: ALL ---
+# ==========================================
+# VIEW A: THE "ALL" TABLE
+# ==========================================
 if st.session_state.target_stock == "All":
     if st.button("🔄 Fetch All Stocks Summary"):
         all_results = []
         with st.spinner("Compiling Market Parameters..."):
             for name, token in token_map.items():
                 try:
-                    df = get_processed_data(name, token)
+                    df = get_processed_data(token)
                     last = df.iloc[-1]
                     all_results.append({
                         "Entity": name, "ltp": round(last['close'], 2), "rsi": int(round(last['rsi'])), 
@@ -94,16 +100,17 @@ if st.session_state.target_stock == "All":
         styled_summary = summary_df.style.apply(color_levels, axis=1).format(precision=2)
         st.subheader("Today's Snapshot: All Instruments")
         st.dataframe(styled_summary, use_container_width=True, height=600)
-        st.info("💡 To view a specific chart, select the stock name from the dropdown menu at the top.")
 
-# --- VIEW: SINGLE ---
+# ==========================================
+# VIEW B: SPECIFIC CHART & TABLE
+# ==========================================
 else:
     try:
-        st.subheader(f"📈 {st.session_state.target_stock}: Price & Indicators")
-        chart_days = st.slider("Chart Lookback (Days)", 5, 60, 14)
-        df = get_processed_data(st.session_state.target_stock, token_map[st.session_state.target_stock])
+        df = get_processed_data(token_map[st.session_state.target_stock])
         
-        # Plot
+        st.subheader(f"📈 {st.session_state.target_stock}: Price & Indicators")
+        chart_days = st.slider("Chart Lookback (Days)", 5, 100, 14, key="chart_slider") 
+        
         chart_df = df.tail(chart_days)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Upper'], name='BB Upper', line=dict(color='rgba(173,181,189,0.3)', width=1)))
@@ -115,8 +122,9 @@ else:
         st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
-        table_days = st.slider("Table Lookback (Days)", 10, 250, 60)
+
         st.subheader("📋 Pure Data Verification")
+        table_days = st.slider("Table Lookback (Days)", 10, 250, 60, key="table_slider") 
         
         table_df = df.tail(table_days)[['date', 'close', 'rsi', 'ema3', 'ema8', 'ema16', 'ema30', 'ema200', 'BB_Upper', 'BB_Mid', 'BB_Lower']].copy()
         table_df = table_df.rename(columns={'close': 'ltp'})
@@ -126,4 +134,4 @@ else:
         st.dataframe(styled_df, use_container_width=True, height=500)
 
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error fetching data: {e}")
