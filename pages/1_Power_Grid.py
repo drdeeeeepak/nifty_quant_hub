@@ -6,9 +6,7 @@ import engine
 st.set_page_config(page_title="Power Grid Scan", layout="wide")
 
 if 'access_token' not in st.session_state:
-    st.warning("Please login on the main page.")
-    st.stop()
-
+    st.switch_page("app.py")
 st.title("⚡ Nifty 50 Power Grid: Execution Engine")
 
 auto_refresh = st.sidebar.toggle("Auto-Refresh (5 Mins)", value=True)
