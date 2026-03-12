@@ -11,18 +11,41 @@ if 'access_token' not in st.session_state:
     st.warning("⚠️ Please log in on the Home page.")
     st.stop()
 
+# --- DYNAMIC TOKEN MAPPING (Including Future) ---
+def get_tokens():
+    try:
+        all_ins = pd.DataFrame(st.session_state.kite.instruments("NFO"))
+        nifty_fut = int(all_ins[(all_ins['name'] == 'NIFTY') & (all_ins['instrument_type'] == 'FUT') & (all_ins['expiry'].astype(str).str.contains('2026-03'))].iloc[0]['instrument_token'])
+    except: 
+        nifty_fut = 12803330
+    
+    t_map = {"NIFTY 50 SPOT": 256265, "NIFTY MAR FUT": nifty_fut}
+    t_map.update(engine.CONSTITUENTS)
+    return t_map
+
+token_map = get_tokens()
+
+# --- NAVIGATION LOGIC ---
+if "target_stock" not in st.session_state:
+    st.session_state.target_stock = "All"
+
+# Helper to change selection
+def select_stock(name):
+    st.session_state.target_stock = name
+
 st.title("📉 Historical Verification & Multi-Stock Hub")
 
-# --- SELECTION ---
-token_map = {"NIFTY 50 SPOT": 256265}
-token_map.update(engine.CONSTITUENTS)
+# Sidebar button to jump back to "All"
+if st.sidebar.button("📊 View All Stocks Table"):
+    st.session_state.target_stock = "All"
 
 options = ["All"] + list(token_map.keys())
-selection = st.selectbox("Select Instrument to Verify", options)
+selection = st.selectbox("Select Instrument to Verify", options, index=options.index(st.session_state.target_stock), key="main_selector")
+st.session_state.target_stock = selection
 
-# Common Date Range for all calculations
+# Data Range (Increased to 400 for EMA 200 stability)
 to_date = datetime.datetime.now()
-from_date = to_date - datetime.timedelta(days=350) 
+from_date = to_date - datetime.timedelta(days=400) 
 
 def get_processed_data(symbol, token):
     data = st.session_state.kite.historical_data(token, from_date, to_date, "day")
@@ -34,42 +57,34 @@ def get_processed_data(symbol, token):
     df['ema200'] = ta.ema(df['close'], length=200)
     df['rsi'] = ta.rsi(df['close'], length=14)
     bb = ta.bbands(df['close'], length=20, std=2)
-    df['BB_Upper'] = bb.iloc[:, 2]
-    df['BB_Mid'] = bb.iloc[:, 1]
-    df['BB_Lower'] = bb.iloc[:, 0]
+    df['BB_Upper'] = bb.iloc[:, 2]; df['BB_Mid'] = bb.iloc[:, 1]; df['BB_Lower'] = bb.iloc[:, 0]
     return df
 
-# --- CONDITIONAL COLORING FUNCTION ---
 def color_levels(row):
     styles = [''] * len(row)
     target_cols = ['ema3', 'ema8', 'ema16', 'ema30', 'ema200', 'BB_Upper', 'BB_Mid', 'BB_Lower']
     ltp = row['ltp']
-    
     for col_name in target_cols:
         if col_name in row.index:
             col_idx = row.index.get_loc(col_name)
             val = row[col_name]
-            if pd.isna(val):
-                styles[col_idx] = 'background-color: #333; color: #888;'
-            elif ltp > val:
-                styles[col_idx] = 'background-color: rgba(0, 255, 0, 0.2); color: #00ff00;'
-            else:
-                styles[col_idx] = 'background-color: rgba(255, 0, 0, 0.2); color: #ff4b4b;'
+            if pd.isna(val): styles[col_idx] = 'background-color: #1a1a1a; color: #444;'
+            elif ltp > val: styles[col_idx] = 'background-color: rgba(0, 255, 0, 0.2); color: #00ff00;'
+            else: styles[col_idx] = 'background-color: rgba(255, 0, 0, 0.2); color: #ff4b4b;'
     return styles
 
-# --- LOGIC FOR "ALL" VIEW ---
-if selection == "All":
-    if st.button("Fetch All Stocks Summary"):
+# --- VIEW: ALL ---
+if st.session_state.target_stock == "All":
+    if st.button("🔄 Fetch All Stocks Summary"):
         all_results = []
-        with st.spinner("Compiling All Market Parameters..."):
+        with st.spinner("Compiling Market Parameters..."):
             for name, token in token_map.items():
                 try:
                     df = get_processed_data(name, token)
                     last = df.iloc[-1]
                     all_results.append({
-                        "Entity": name, "ltp": round(last['close'], 2),
-                        "rsi": int(round(last['rsi'])), "ema3": last['ema3'],
-                        "ema8": last['ema8'], "ema16": last['ema16'],
+                        "Entity": name, "ltp": round(last['close'], 2), "rsi": int(round(last['rsi'])), 
+                        "ema3": last['ema3'], "ema8": last['ema8'], "ema16": last['ema16'],
                         "ema30": last['ema30'], "ema200": last['ema200'],
                         "BB_Upper": last['BB_Upper'], "BB_Mid": last['BB_Mid'], "BB_Lower": last['BB_Lower']
                     })
@@ -79,26 +94,26 @@ if selection == "All":
         styled_summary = summary_df.style.apply(color_levels, axis=1).format(precision=2)
         st.subheader("Today's Snapshot: All Instruments")
         st.dataframe(styled_summary, use_container_width=True, height=600)
+        st.info("💡 To view a specific chart, select the stock name from the dropdown menu at the top.")
 
-# --- LOGIC FOR SINGLE INSTRUMENT VIEW ---
+# --- VIEW: SINGLE ---
 else:
     try:
+        st.subheader(f"📈 {st.session_state.target_stock}: Price & Indicators")
         chart_days = st.slider("Chart Lookback (Days)", 5, 60, 14)
-        df = get_processed_data(selection, token_map[selection])
+        df = get_processed_data(st.session_state.target_stock, token_map[st.session_state.target_stock])
         
-        # 1. GRAPH
-        st.subheader(f"📈 {selection}: Price & Indicators")
+        # Plot
         chart_df = df.tail(chart_days)
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Upper'], name='BB Upper', line=dict(color='rgba(173, 181, 189, 0.3)', width=1)))
-        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Lower'], name='BB Lower', line=dict(color='rgba(173, 181, 189, 0.3)', width=1), fill='tonexty'))
-        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Mid'], name='BB Mid', line=dict(color='rgba(173, 181, 189, 0.5)', width=1)))
-        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['ema3'], name='EMA3 (Dotted)', line=dict(color='yellow', width=2, dash='dot')))
-        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['close'], name='LTP (Solid Blue)', line=dict(color='#1E90FF', width=3)))
+        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Upper'], name='BB Upper', line=dict(color='rgba(173,181,189,0.3)', width=1)))
+        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Lower'], name='BB Lower', line=dict(color='rgba(173,181,189,0.3)', width=1), fill='tonexty'))
+        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['BB_Mid'], name='BB Mid', line=dict(color='rgba(173,181,189,0.5)', width=1)))
+        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['ema3'], name='EMA3 (Yellow Dot)', line=dict(color='yellow', width=2, dash='dot')))
+        fig.add_trace(go.Scatter(x=chart_df['date'], y=chart_df['close'], name='LTP (Blue Solid)', line=dict(color='#1E90FF', width=3)))
         fig.update_layout(template="plotly_dark", height=450, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
-        # 2. TABLE
         st.divider()
         table_days = st.slider("Table Lookback (Days)", 10, 250, 60)
         st.subheader("📋 Pure Data Verification")
@@ -106,9 +121,8 @@ else:
         table_df = df.tail(table_days)[['date', 'close', 'rsi', 'ema3', 'ema8', 'ema16', 'ema30', 'ema200', 'BB_Upper', 'BB_Mid', 'BB_Lower']].copy()
         table_df = table_df.rename(columns={'close': 'ltp'})
         table_df['date'] = table_df['date'].dt.date
-        table_df = table_df.sort_values(by='date', ascending=False)
-
-        styled_df = table_df.style.apply(color_levels, axis=1).format(precision=2)
+        
+        styled_df = table_df.sort_values(by='date', ascending=False).style.apply(color_levels, axis=1).format(precision=2)
         st.dataframe(styled_df, use_container_width=True, height=500)
 
     except Exception as e:
