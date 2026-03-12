@@ -1,47 +1,44 @@
 import streamlit as st
 import pandas as pd
-from engine import TechnicalEngine
+import datetime
+import engine
 
-st.set_page_config(page_title="Market Charts", layout="wide")
+st.set_page_config(page_title="Historical Verification", layout="wide")
 
 if 'access_token' not in st.session_state:
-    st.warning("Please log in on the Home page.")
     st.stop()
 
-st.title("📉 Historical Trend Analysis")
+st.title("📉 Historical Verification & Pure Data")
 
-# Initialize Engine
-eng = TechnicalEngine(st.session_state.kite)
+# Selection
+token_map = {"NIFTY 50 SPOT": 256265}
+token_map.update(engine.CONSTITUENTS)
+symbol = st.selectbox("Select Instrument to Verify", list(token_map.keys()))
+days = st.slider("Lookback Period", 10, 100, 60)
 
-# Mapping common names to Kite Tokens
-TOKENS = {
-    "NIFTY 50": 256265,
-    "RELIANCE": 738561,
-    "HDFCBANK": 341249,
-    "ICICIBANK": 1270529
-}
+# Data
+token = token_map[symbol]
+to_date = datetime.datetime.now()
+from_date = to_date - datetime.timedelta(days=days)
 
-selection = st.selectbox("Select Instrument to Analyze", list(TOKENS.keys()))
-days_to_lookback = st.slider("Select Days", 10, 100, 60)
+try:
+    data = st.session_state.kite.historical_data(token, from_date, to_date, "day")
+    df = pd.DataFrame(data)
+    s = engine.calculate_ths(df) # Run scoring for indicators
 
-if st.button("Generate Technical Chart"):
-    with st.spinner("Fetching Data..."):
-        token = TOKENS[selection]
-        df = eng.get_historical_data(token, days=days_to_lookback)
-        
-        if not df.empty:
-            # Show Price Chart
-            st.subheader(f"{selection} Price Progress")
-            st.line_chart(df.set_index('date')['close'])
-            
-            # Show Data Metrics
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Current Price", f"₹{df['close'].iloc[-1]}")
-            col2.metric("High (Period)", f"₹{df['high'].max()}")
-            col3.metric("Low (Period)", f"₹{df['low'].min()}")
-            
-            # Show Raw Data for verification
-            with st.expander("View Raw OHLC Data"):
-                st.dataframe(df.tail(10))
-        else:
-            st.error("Could not fetch data. Check your API connection.")
+    # 1. Prediction Layer
+    st.success(f"**Current AI Prediction:** {s['pred']} (Score: {s['final']})")
+
+    # 2. Historical Plotting
+    st.subheader("Price vs. EMA Grid Progress")
+    chart_df = df[['date', 'close', 'ema8', 'ema16', 'ema30']].set_index('date')
+    st.line_chart(chart_df)
+
+    # 3. Pure Data Confirmation
+    st.subheader("Pure Data: OHLC & Indicator Levels")
+    pure_df = df[['date', 'open', 'high', 'low', 'close', 'ema8', 'ema30', 'rsi']].copy()
+    pure_df['date'] = pure_df['date'].dt.date
+    st.dataframe(pure_df.sort_values(by='date', ascending=False), use_container_width=True)
+
+except Exception as e:
+    st.error(f"Error fetching data: {e}")
