@@ -11,8 +11,8 @@ st.title("📈 Nifty Quant Hub - Central Command")
 # 1. KITE API CREDENTIALS & SETUP
 # ==========================================
 try:
-    API_KEY = st.secrets["ufen54ln7mxu2cav"]
-    API_SECRET = st.secrets["qyz8os3eha9alh777c7jujn3gzmhv7n5"]
+   API_KEY = st.secrets["KITE_API_KEY"]         
+    API_SECRET = st.secrets["KITE_API_SECRET"]
 except KeyError as e:
     st.error(f"🔑 Secret missing: {e}. Check the exact spelling in your Streamlit settings!")
     st.stop()
