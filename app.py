@@ -46,7 +46,7 @@ if 'access_token' not in st.session_state:
             kite.profile() # This will fail if the token is expired
             st.session_state['access_token'] = saved_token
         except Exception:
-            # Token is expired (happens every morning at 6 AM). Delete the old file.
+            # Token is expired. Delete the old file.
             if os.path.exists(TOKEN_FILE):
                 os.remove(TOKEN_FILE)
 
@@ -65,18 +65,14 @@ if 'access_token' not in st.session_state:
             st.session_state['access_token'] = new_token
             save_token(new_token)
             
-            # Clean transition to prevent Streamlit Cloud redirect loops
-            st.success("✅ Logged in successfully! Token saved for the day.")
-            if st.button("Enter Dashboard", type="primary"):
-                st.query_params.clear()
-                st.rerun()
+            # THE FIX: Hard HTML browser redirect to break the loop!
+            st.success("✅ Auth successful! Saving token and launching dashboard...")
+            st.markdown('<meta http-equiv="refresh" content="2; url=https://niftyquantapp-v4.streamlit.app/">', unsafe_allow_html=True)
             st.stop()
             
         except Exception as e:
-            st.error(f"Authentication failed. Please try logging in again.\nError: {e}")
-            if st.button("Reset & Try Again"):
-                st.query_params.clear()
-                st.rerun()
+            st.error(f"Authentication failed. Token may be expired. \nError: {e}")
+            st.markdown('<meta http-equiv="refresh" content="3; url=https://niftyquantapp-v4.streamlit.app/">', unsafe_allow_html=True)
             st.stop()
     else:
         # Step C: No token anywhere. Show the Login Button.
