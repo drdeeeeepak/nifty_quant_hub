@@ -1,7 +1,8 @@
 import pandas as pd
+import numpy as np
 import pandas_ta_classic as ta
 
-# MARCH 2026 WEIGHTS
+# MARCH 2026 WEIGHTS (Kite Instrument Tokens)
 CONSTITUENTS = {
     "RELIANCE": 738561, "HDFCBANK": 341249, "ICICIBANK": 1270529, 
     "BHARTIARTL": 2714625, "INFY": 408065, "TCS": 2953217, 
@@ -42,15 +43,83 @@ def calculate_ths(df):
     else: pred = "Neutral: Sideways"
 
     return {"final": final, "p1": p1, "p2": p2, "p3": p3, "p4": p4, "squeeze": squeeze, "rsi": int(round(last['rsi'])), "pred": pred}
+
+# ==========================================
+# MARKET PROFILE & MACRO REGIME LOGIC
+# ==========================================
+
+def get_market_profile(df, tick=5):
+    """Fast Market Profile algorithm using 1-min data histograms."""
+    if df is None or df.empty:
+        return None, None, None
+        
+    low = df['low'].min()
+    high = df['high'].max()
+    
+    bins = np.arange(low, high + tick, tick)
+    counts = np.zeros(len(bins))
+    
+    for _, row in df.iterrows():
+        candle_bins = np.arange(row['low'], row['high'] + tick, tick)
+        idx = np.searchsorted(bins, candle_bins)
+        # Prevent out-of-bounds indexing
+        idx = idx[idx < len(counts)] 
+        counts[idx] += 1
+        
+    poc_index = np.argmax(counts)
+    poc = bins[poc_index]
+    
+    total = counts.sum()
+    target = total * 0.70
+    
+    sorted_idx = np.argsort(counts)[::-1]
+    cumulative = 0
+    value_bins = []
+    
+    for i in sorted_idx:
+        cumulative += counts[i]
+        value_bins.append(bins[i])
+        if cumulative >= target:
+            break
+            
+    vah = max(value_bins)
+    val = min(value_bins)
+    
+    return poc, vah, val
+
 def get_macro_regime(df_daily, df_weekly):
-    # This function looks at your already-calculated VAH/VAL/POC and RSI
-    # and returns the simple string for the UI.
+    """
+    Evaluates the overarching market structure by combining RSI and Market Profile.
+    """
+    if df_daily is None or df_daily.empty or df_weekly is None or df_weekly.empty:
+        return "Waiting for Data..."
+        
+    # Get current price and RSI from the daily dataframe
+    df_daily['rsi'] = ta.rsi(df_daily['close'], length=14)
+    spot_price = df_daily['close'].iloc[-1]
+    rsi_daily = df_daily['rsi'].iloc[-1]
     
-    rsi_daily = calculate_rsi(df_daily)
-    # ... your existing logic ...
+    # Get the Weekly Profile levels (Wednesday-Tuesday cycle)
+    weekly_poc, weekly_vah, weekly_val = get_market_profile(df_weekly)
     
-    if price > weekly_vah and rsi_daily > 60:
+    if weekly_vah is None:
+        return "Insufficient Profile Data"
+
+    # Evaluate the Regime Rules
+    if spot_price > weekly_vah and rsi_daily > 60:
         return "Bullish Expansion"
-    elif price_inside_value and 46 <= rsi_daily <= 54:
+    
+    elif spot_price < weekly_val and rsi_daily < 40:
+        return "Bearish Expansion"
+        
+    elif weekly_val <= spot_price <= weekly_vah and 46 <= rsi_daily <= 54:
         return "Balanced Rotation"
-    # etc...
+        
+    elif weekly_val <= spot_price <= weekly_vah and rsi_daily > 54:
+        return "Controlled Bullish Drift"
+        
+    elif weekly_val <= spot_price <= weekly_vah and rsi_daily < 46:
+        return "Controlled Bearish Drift"
+        
+    else:
+        return "Mixed / Transitioning"
