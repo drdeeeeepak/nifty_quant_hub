@@ -10,8 +10,8 @@ st.title("📈 Nifty Quant Hub - Central Command")
 # ==========================================
 # Make sure these are set in your Streamlit Cloud dashboard or local secrets.toml
 try:
-    API_KEY = st.secrets["KITE_API_KEY"]
-    API_SECRET = st.secrets["KITE_API_SECRET"]
+    API_KEY = st.secrets["ufen54ln7mxu2cav"]
+    API_SECRET = st.secrets["qyz8os3eha9alh777c7jujn3gzmhv7n5"]
 except Exception:
     st.error("API Credentials not found. Please configure st.secrets.")
     st.stop()
