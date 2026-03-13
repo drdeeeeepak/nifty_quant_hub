@@ -11,25 +11,26 @@ st.title("📈 Nifty Quant Hub - Central Command")
 # 1. KITE API CREDENTIALS & SETUP
 # ==========================================
 try:
-   API_KEY = st.secrets["KITE_API_KEY"]         
+    API_KEY = st.secrets["KITE_API_KEY"]
     API_SECRET = st.secrets["KITE_API_SECRET"]
-except KeyError as e:
-    st.error(f"🔑 Secret missing: {e}. Check the exact spelling in your Streamlit settings!")
-    st.stop()
-except FileNotFoundError:
-    st.error("📁 The secrets file was not found.")
-    st.stop()
-except Exception as e:
-    st.error(f"⚠️ Unexpected error reading secrets: {e}")
+except Exception:
+    st.error("API Credentials not found. Please configure st.secrets in Streamlit Cloud.")
     st.stop()
 
-try:
-    kite = KiteConnect(api_key=API_KEY)
-except Exception as e:
-    st.error(f"⚠️ Failed to initialize KiteConnect. Error: {e}")
-    st.stop()
-
+kite = KiteConnect(api_key=API_KEY)
 TOKEN_FILE = "token.txt"
+
+def load_saved_token():
+    """Reads the token from the file if it exists."""
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, "r") as f:
+            return f.read().strip()
+    return None
+
+def save_token(token):
+    """Saves the token to a text file for all-day persistence."""
+    with open(TOKEN_FILE, "w") as f:
+        f.write(token)
 
 # ==========================================
 # 2. THE LOGIN & AUTHORIZATION FLOW
