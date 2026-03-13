@@ -1,7 +1,10 @@
 streamlit>=1.35.0
 kiteconnect
 pandas
+numpy
 pandas_ta_classic
 python-dotenv
 plotly
 altair>=5.0.0
+py_vollib
+scipy
