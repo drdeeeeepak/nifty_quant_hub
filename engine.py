@@ -42,3 +42,15 @@ def calculate_ths(df):
     else: pred = "Neutral: Sideways"
 
     return {"final": final, "p1": p1, "p2": p2, "p3": p3, "p4": p4, "squeeze": squeeze, "rsi": int(round(last['rsi'])), "pred": pred}
+def get_macro_regime(df_daily, df_weekly):
+    # This function looks at your already-calculated VAH/VAL/POC and RSI
+    # and returns the simple string for the UI.
+    
+    rsi_daily = calculate_rsi(df_daily)
+    # ... your existing logic ...
+    
+    if price > weekly_vah and rsi_daily > 60:
+        return "Bullish Expansion"
+    elif price_inside_value and 46 <= rsi_daily <= 54:
+        return "Balanced Rotation"
+    # etc...
